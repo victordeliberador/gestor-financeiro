@@ -4,3 +4,5 @@ dist
 *.local
 server/node_modules
 server/uploads
+*.txt
+bootstrap-*.ps1
