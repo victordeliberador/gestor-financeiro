@@ -101,7 +101,7 @@ export default function VisaoGeralPage() {
         {[
           { label: "Receitas", value: formatCurrency(totalIncome), color: "#10b981" },
           { label: "Despesas", value: formatCurrency(totalExpense), color: "#ef4444" },
-          { label: "Saldo", value: formatCurrency(Math.abs(balance)), color: balance >= 0 ? "#3b82f6" : "#ef4444" },
+          { label: "Saldo", value: (balance < 0 ? "-" : "") + formatCurrency(Math.abs(balance)), color: balance >= 0 ? "#3b82f6" : "#ef4444" },
         ].map((c) => (
           <div key={c.label} style={{ padding: 20, background: "var(--bg-secondary)", borderRadius: 12, border: "1px solid var(--border)" }}>
             <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8 }}>{c.label}</div>
