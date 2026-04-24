@@ -32,6 +32,28 @@ ${expenseLines || "  (nenhuma despesa lançada)"}
 === FIM DOS DADOS ===`;
 }
 
+async function addPunctuation(text: string): Promise<string> {
+  try {
+    const res = await fetch("/api/ai/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: "user",
+            content: `Adicione pontuação correta (vírgulas, pontos, interrogações, exclamações e parágrafos onde necessário) no texto abaixo. Mantenha exatamente as mesmas palavras, apenas corrija a pontuação. Retorne SOMENTE o texto corrigido, sem explicações:\n\n${text}`
+          }
+        ]
+      }),
+    });
+    if (!res.ok) return text;
+    const data = await res.json();
+    return data.reply || text;
+  } catch {
+    return text;
+  }
+}
+
 export default function ConsultorPage() {
   const { activeMonth, getMonthData, saveMonthData, settings } = useApp();
   const [messages, setMessages] = useState<ConsultantMessage[]>([]);
@@ -40,6 +62,7 @@ export default function ConsultorPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [aiOnline, setAiOnline] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isPunctuating, setIsPunctuating] = useState(false);
   const [recordingError, setRecordingError] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -86,7 +109,8 @@ export default function ConsultorPage() {
       const errMsg: ConsultantMessage = { id: generateId(), role: "assistant", content: `Erro: ${err instanceof Error ? err.message : "Tente novamente."}`, createdAt: Date.now() };
       setMessages(prev => [...prev, errMsg]);
     } finally {
-      setIsLoading(false); }
+      setIsLoading(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -122,9 +146,23 @@ export default function ConsultorPage() {
     recognition.start();
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
     recognitionRef.current?.stop();
     setIsRecording(false);
+
+    // Aguarda um momento para o texto final ser capturado
+    await new Promise(r => setTimeout(r, 500));
+
+    setInput(current => {
+      if (!current.trim() || !aiOnline) return current;
+      // Inicia pontuação em background
+      setIsPunctuating(true);
+      addPunctuation(current).then(punctuated => {
+        setInput(punctuated);
+        setIsPunctuating(false);
+      });
+      return current;
+    });
   };
 
   const statusOnline = aiMode === "online" && aiOnline;
@@ -164,8 +202,13 @@ export default function ConsultorPage() {
 
       {isRecording && (
         <div style={{ fontSize: 12, color: "#ef4444", padding: "6px 10px", background: "rgba(239,68,68,0.08)", borderRadius: 6, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#ef4444", animation: "pulse 1s infinite" }}>●</span>
-          Gravando... fale normalmente. Clique em ⏹️ quando terminar.
+          🔴 Gravando... fale normalmente. Clique em ⏹️ quando terminar.
+        </div>
+      )}
+
+      {isPunctuating && (
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", padding: "6px 10px", background: "var(--bg-secondary)", borderRadius: 6 }}>
+          ✍️ Adicionando pontuação automaticamente...
         </div>
       )}
 
@@ -192,7 +235,7 @@ export default function ConsultorPage() {
               ⏹️
             </button>
           )}
-          <button onClick={send} disabled={isLoading || !input.trim()} style={{ width: 44, height: 44, background: "var(--primary)", border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", opacity: isLoading || !input.trim() ? 0.5 : 1 }}>
+          <button onClick={send} disabled={isLoading || !input.trim() || isPunctuating} style={{ width: 44, height: 44, background: "var(--primary)", border: "none", borderRadius: 8, cursor: "pointer", color: "#fff", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", opacity: isLoading || !input.trim() || isPunctuating ? 0.5 : 1 }}>
             ➤
           </button>
         </div>
