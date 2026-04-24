@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect, useRef } from "react";
 import { useApp } from "../app/AppProvider";
 import { sendChatMessage, checkAIAvailable } from "../services/aiClient";
 import { generateId, formatCurrency } from "../domain/helpers";
@@ -21,7 +21,7 @@ function buildContext(data: MonthData) {
     .join("\n");
 
   const expenseLines = data.expenses
-    .slice(-20)
+    .slice(-30)
     .map(e => `  - ${e.label}${e.categoryMain ? ` [${e.categoryMain}]` : ""}: ${formatCurrency(e.amountCents)}`)
     .join("\n");
 
@@ -52,6 +52,11 @@ export default function ConsultorPage() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [aiOnline, setAiOnline] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingError, setRecordingError] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<any>(null);
   const aiMode = settings?.aiMode || "local";
 
   useEffect(() => {
@@ -61,6 +66,10 @@ export default function ConsultorPage() {
     });
     if (aiMode === "online") checkAIAvailable().then(setAiOnline);
   }, [activeMonth, aiMode]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
 
   const send = async () => {
     if (!input.trim() || isLoading) return;
@@ -122,6 +131,54 @@ export default function ConsultorPage() {
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  const startRecording = () => {
+    setRecordingError("");
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setRecordingError("Seu navegador não suporta reconhecimento de voz. Use o Chrome.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "pt-BR";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => setIsRecording(true);
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput(prev => prev ? prev + " " + transcript : transcript);
+      setIsRecording(false);
+    };
+
+    recognition.onerror = (event: any) => {
+      setIsRecording(false);
+      if (event.error === "not-allowed") {
+        setRecordingError("Permissão de microfone negada. Habilite nas configurações do navegador.");
+      } else {
+        setRecordingError("Erro ao gravar. Tente novamente.");
+      }
+    };
+
+    recognition.onend = () => setIsRecording(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  };
+
+  const stopRecording = () => {
+    recognitionRef.current?.stop();
+    setIsRecording(false);
+  };
+
   const statusOnline = aiMode === "online" && aiOnline;
 
   return (
@@ -137,6 +194,8 @@ export default function ConsultorPage() {
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
+        flexWrap: "wrap",
+        gap: 4,
       }}>
         <span>{statusOnline ? "🤖 IA Online (Claude) — com acesso aos seus dados do mês" : "🧠 Consultor Local (offline)"}</span>
         {statusOnline && monthData && (
@@ -161,29 +220,45 @@ export default function ConsultorPage() {
               padding: "10px 14px",
               borderRadius: 10,
               fontSize: 14,
-              lineHeight: 1.6,
+              lineHeight: 1.7,
               background: m.role === "user" ? "var(--primary)" : "var(--bg-secondary)",
               color: "var(--text)",
               border: m.role === "assistant" ? "1px solid var(--border)" : "none",
               whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
             }}>
               {m.content}
             </div>
           </div>
         ))}
         {isLoading && (
-          <div style={{ textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>
-            ⏳ Analisando seus dados...
+          <div style={{ display: "flex", justifyContent: "flex-start" }}>
+            <div style={{ padding: "10px 14px", borderRadius: 10, background: "var(--bg-secondary)", border: "1px solid var(--border)", fontSize: 14, color: "var(--text-secondary)" }}>
+              ⏳ Dr. Ricardo está analisando...
+            </div>
           </div>
         )}
+        <div ref={messagesEndRef} />
       </div>
 
-      <div style={{ display: "flex", gap: 10 }}>
-        <input
+      {recordingError && (
+        <div style={{ fontSize: 12, color: "var(--danger)", padding: "6px 10px", background: "rgba(239,68,68,0.1)", borderRadius: 6 }}>
+          ❌ {recordingError}
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: "var(--text-secondary)", paddingLeft: 2 }}>
+        💡 Enter para enviar · Shift+Enter para nova linha · 🎤 para falar
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+        <textarea
+          ref={textareaRef}
           value={input}
           onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()}
+          onKeyDown={handleKeyDown}
           placeholder={statusOnline ? "Ex: Onde estou gastando mais? Como economizar?" : "Pergunte sobre suas finanças..."}
+          rows={3}
           style={{
             flex: 1,
             padding: "10px 14px",
@@ -193,26 +268,54 @@ export default function ConsultorPage() {
             color: "var(--text)",
             fontSize: 14,
             outline: "none",
+            resize: "vertical",
+            fontFamily: "inherit",
+            lineHeight: 1.5,
+            minHeight: 60,
+            maxHeight: 160,
           }}
         />
-        <button
-          onClick={send}
-          disabled={isLoading || !input.trim()}
-          style={{
-            padding: "10px 20px",
-            background: "var(--primary)",
-            border: "none",
-            borderRadius: 8,
-            cursor: "pointer",
-            color: "#fff",
-            fontFamily: "inherit",
-            fontSize: 14,
-            fontWeight: 600,
-            opacity: isLoading || !input.trim() ? 0.5 : 1,
-          }}
-        >
-          Enviar
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <button
+            onClick={isRecording ? stopRecording : startRecording}
+            title={isRecording ? "Parar gravação" : "Falar com o Ricardo"}
+            style={{
+              width: 44,
+              height: 44,
+              background: isRecording ? "rgba(239,68,68,0.15)" : "var(--bg-secondary)",
+              border: `1px solid ${isRecording ? "#ef4444" : "var(--border)"}`,
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 20,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "all 0.2s",
+            }}
+          >
+            {isRecording ? "⏹️" : "🎤"}
+          </button>
+          <button
+            onClick={send}
+            disabled={isLoading || !input.trim()}
+            style={{
+              width: 44,
+              height: 44,
+              background: "var(--primary)",
+              border: "none",
+              borderRadius: 8,
+              cursor: "pointer",
+              color: "#fff",
+              fontSize: 18,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: isLoading || !input.trim() ? 0.5 : 1,
+            }}
+          >
+            ➤
+          </button>
+        </div>
       </div>
     </div>
   );
