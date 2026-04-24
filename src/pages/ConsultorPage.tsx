@@ -34,7 +34,7 @@ ${expenseLines || "  (nenhuma despesa lançada)"}
 
 async function addPunctuation(text: string): Promise<string> {
   try {
-    const res = await fetch("/api/ai/chat", {
+    const API_URL = import.meta.env.VITE_API_URL || "";
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
